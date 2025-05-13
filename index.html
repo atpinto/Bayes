@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bayesian Linear Regression Simulation (Conjugate Prior)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jstat@latest/dist/jstat.min.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 3px; display: flex; flex-direction: column; align-items: center; }
+        .container { display: flex; flex-wrap: wrap; justify-content: space-around; width: 100%; max-width: 1200px; }
+        .panel { border: 1px solid #ccc; padding: 15px; margin: 10px; border-radius: 5px; width: 300px; min-width: 300px; box-sizing: border-box; }
+        .full-width-panel { width: 95%; margin-top: 20px; }
+        .plot-panel { width: 100%; }
+        h2, h3 { text-align: center; color: #333; }
+        label { display: inline-block; width: 180px; margin-bottom: 5px; }
+        input[type="number"] { width: 80px; margin-bottom: 10px; padding: 5px; }
+        button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+        button:hover { background-color: #218838; }
+        #generateButton { background-color: #007bff; }
+        #generateButton:hover { background-color: #0056b3; }
+        .plot-container { width: 100%; margin-top: 20px; min-height: 300px; /* Ensure canvas has height */ }
+        canvas { max-width: 100%; border: 1px dashed lightgray; /* Make canvas visible */ }
+        pre { background-color: #f0f0f0; padding: 10px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.9em; }
+        .warning { color: orange; font-weight: bold; font-size: 0.9em; }
+        .error { color: red; font-weight: bold; font-size: 0.9em; }
+        .message { color: #555; font-size: 0.9em; }
+
+    </style>
+</head>
+<body>
+    <h1>Bayesian Linear Regression Simulation (Conjugate Prior)</h1>
+
+    <div class="container">
+        <div class="panel" style="font-size:0.75em; color:#555; font-size:0.75em; color:#555; 
+  width: 400px; background-color: powderblue;">
+            <h3>1. Data Generation Parameters</h3>
+            <label for="true_beta0">True Intercept (β0):</label>
+            <input type="number" id="true_beta0" value="2" maxlength="4" size="4""><br>
+            <label for="true_beta1">True Slope (β1):</label>
+            <input type="number" id="true_beta1" value="1.5"><br>
+            <label for="mean_x">Mean of X (μ_x):</label>
+            <input type="number" id="mean_x" value="5"><br>
+            <label for="std_dev_x">Std Dev of X (σ_x):</label>
+            <input type="number" id="std_dev_x" value="2" step="0.1"><br>
+            <label for="target_correlation">Target Correlation (ρ):</label>
+            <input type="number" id="target_correlation" value="0.8" step="0.05" min="-1" max="1"><br>
+            <p >(Noise level σ_noise calculated from β1, σ_x, ρ)</p>
+            <label for="num_points">Number of Data Points (N):</label>
+            <input type="number" id="num_points" value="50"><br>
+
+            <button id="generateButton" onclick="generateAndPlotData()">Generate Data & Plot</button>
+            <div id="generation_message" class="message" style="margin-top:10px;"></div>
+        </div>
+
+        <div class="panel" style="font-size:0.75em; color:#555; font-size:0.75em; color:#555; 
+  width: 400px; background-color: powderblue;">
+            <h3>2. Prior Distribution Parameters</h3>
+             <h4>For Coefficients (β = [β0, β1])</h4>
+             <p style="font-size:0.9em; color: #555;">Prior Mean Vector (μ₀):</p>
+            <label for="prior_beta0_mean">Mean (μ₀_prior):</label>
+            <input type="number" id="prior_beta0_mean" value="0"><br>
+            <label for="prior_beta1_mean">Mean (μ₁_prior):</label>
+            <input type="number" id="prior_beta1_mean" value="0"><br>
+            <p style="font-size:0.9em; color: #555;">Prior Std Devs (used for Λ₀ = diag(1/σᵢ²)):</p>
+            <label for="prior_beta0_std">Std Dev (σ₀_prior):</label>
+            <input type="number" id="prior_beta0_std" value="10" step="0.1"><br>
+            <label for="prior_beta1_std">Std Dev (σ₁_prior):</label>
+            <input type="number" id="prior_beta1_std" value="10" step="0.1"><br>
+
+            <h4>For Precision (τ = 1/σ²_noise ~ Gamma(a₀, b₀))</h4>
+            <p style="font-size:0.9em; color: #555;">(Shape (a₀) and Rate (b₀). Small values like 0.01, 0.01 are weakly informative)</p>
+            <label for="prior_tau_alpha">Shape (a₀):</label>
+            <input type="number" id="prior_tau_alpha" value="0.01" step="0.01"><br>
+            <label for="prior_tau_beta">Rate (b₀):</label>
+            <input type="number" id="prior_tau_beta" value="0.01" step="0.01"><br>
+        </div>
+
+        <div class="panel full-width-panel" style="text-align: center;border: 0px;">
+             <h3>Calculate Posterior</h3>
+             <button onclick="calculateConjugatePosteriors()">Calculate & Plot Posteriors (Conjugate)</button>
+        </div>
+    </div>
+
+
+    <div class="container plot-panel">
+        <h3>Results</h3>
+        <div id="status" style="text-align:center; margin-bottom:10px; min-height: 1.2em;"></div>
+        <div class="plot-container">
+            <canvas id="dataScatterPlot"></canvas>
+        </div>
+        <div style="display:flex; justify-content: space-around; flex-wrap:wrap; width:100%;">
+            <div class="plot-container" style="width:48%; min-height: 300px;">
+                <canvas id="posteriorBeta0Plot"></canvas>
+            </div>
+            <div class="plot-container" style="width:48%; min-height: 300px;">
+                <canvas id="posteriorBeta1Plot"></canvas>
+            </div>
+        </div>
+         <pre id="summaryStats"></pre>
+    </div>
+
+<script>
+    // --- Global variables ---
+    let data = { x: [], y: [] };
+    let trueParams = {}; // Stores β0, β1, and calculated σ_noise
+    let posteriorParams = {}; // Stores calculated posterior parameters
+
+    // --- Helper functions ---
+    function getVal(id) { return parseFloat(document.getElementById(id).value); }
+
+    function setMsg(id, text, type = 'message') {
+        const el = document.getElementById(id);
+        if (el) {
+            el.innerText = text;
+            el.className = type; // Use 'message', 'warning', or 'error' class
+        } else { console.error("Cannot find element with ID:", id); }
+    }
+
+    // --- Matrix/Vector Helpers ---
+    // Invert a 2x2 matrix: [[a, b], [c, d]] -> 1/(ad-bc) * [[d, -b], [-c, a]]
+    function invert2x2(M) {
+        const det = M[0][0] * M[1][1] - M[0][1] * M[1][0];
+        if (Math.abs(det) < 1e-15) { // Check for singularity
+            console.error("Matrix is singular, cannot invert.", M);
+            return null;
+        }
+        const invDet = 1.0 / det;
+        return [
+            [invDet * M[1][1], -invDet * M[0][1]],
+            [-invDet * M[1][0], invDet * M[0][0]]
+        ];
+    }
+
+    // Multiply a 2x2 matrix by a 2x1 vector: [[a, b], [c, d]] * [x, y]' -> [ax+by, cx+dy]'
+    function multiply2x2Vector(M, v) {
+        return [
+            M[0][0] * v[0] + M[0][1] * v[1],
+            M[1][0] * v[0] + M[1][1] * v[1]
+        ];
+    }
+
+    // Multiply a 2xN matrix transpose by an Nx1 vector: M' * v
+    function multiplyMatrixTransposeVector(Mt, v) { // Mt is N x 2
+         if (!Mt || Mt.length === 0 || Mt[0].length !== 2 || Mt.length !== v.length) {
+              console.error("Invalid dimensions for Mt' * v", Mt, v); return null;
+         }
+         const N = Mt.length;
+         let res0 = 0;
+         let res1 = 0;
+         for(let i=0; i<N; i++) {
+             res0 += Mt[i][0] * v[i];
+             res1 += Mt[i][1] * v[i];
+         }
+         return [res0, res1];
+    }
+
+     // Multiply a 2xN matrix transpose by an Nx2 matrix: M' * M
+     function multiplyMatrixTransposeMatrix(Mt, M) { // Mt is N x 2, M is N x 2
+         if (!Mt || Mt.length === 0 || Mt[0].length !== 2 || Mt.length !== M.length || M[0].length !== 2) {
+              console.error("Invalid dimensions for Mt' * M", Mt, M); return null;
+         }
+         const N = Mt.length;
+         let res00 = 0, res01 = 0, res10 = 0, res11 = 0;
+         for(let i=0; i<N; i++) {
+              res00 += Mt[i][0] * M[i][0];
+              res01 += Mt[i][0] * M[i][1];
+              res10 += Mt[i][1] * M[i][0]; // Same as res01 if symmetric
+              res11 += Mt[i][1] * M[i][1];
+         }
+         return [[res00, res01], [res10, res11]]; // Should be [res01, res11] if calc correct
+     }
+
+     // Dot product of two vectors (1xN * Nx1)
+     function dotProduct(v1, v2) {
+         if (v1.length !== v2.length) return NaN;
+         let sum = 0;
+         for (let i = 0; i < v1.length; i++) { sum += v1[i] * v2[i]; }
+         return sum;
+     }
+
+    // Multiply 1x2 vector transpose * 2x2 matrix * 2x1 vector: v' * M * v
+    function quadraticForm(v, M) {
+         // v' * M = [v0*M00 + v1*M10, v0*M01 + v1*M11]
+         const tempVec = [
+             v[0] * M[0][0] + v[1] * M[1][0],
+             v[0] * M[0][1] + v[1] * M[1][1]
+         ];
+         // tempVec * v = tempVec0*v0 + tempVec1*v1
+         return tempVec[0] * v[0] + tempVec[1] * v[1];
+    }
+
+
+    // --- Data Generation (mostly unchanged) ---
+    function calculate_sigma_noise(beta1, sigma_x, rho_target) {
+        let message = ""; let sigma_noise = 1.0; let messageType = 'message'; let error = false;
+        if (isNaN(beta1) || isNaN(sigma_x) || isNaN(rho_target)) { message = "Error: One or more input parameters (β1, σ_x, ρ) are not valid numbers."; messageType = 'error'; error = true; return { sigma_noise, message, messageType, error }; }
+        if (sigma_x <= 0) { message = "Error: Std Dev of X (σ_x) must be positive."; messageType = 'error'; error = true; return { sigma_noise, message, messageType, error }; }
+        if (Math.abs(rho_target) > 1) { message = "Error: Target Correlation (ρ) must be between -1 and 1."; messageType = 'error'; error = true; return { sigma_noise, message, messageType, error }; }
+        if (beta1 === 0) { if (rho_target !== 0) { message = `Warning: True β1 is 0, so correlation must be 0. Target ρ=${rho_target} ignored. Using ρ=0.`; messageType = 'warning'; rho_target = 0; } sigma_noise = 1.0; message += (message ? " " : "") + "Using default σ_noise = 1.0.";
+        } else if (Math.abs(rho_target) >= 0.999999) { sigma_noise = 0; message = `Note: Target |ρ| ≈ 1 implies σ_noise = 0.`; messageType = 'message';
+        } else if (rho_target === 0) { sigma_noise = 100 * Math.abs(beta1 * sigma_x); message = `Warning: Target ρ=0 with β1≠0 implies infinite noise. Using a very large σ_noise (${sigma_noise.toExponential(2)}) for simulation.`; messageType = 'warning';
+        } else { const rho_sq = rho_target * rho_target; const term_inside_sqrt = (1 / rho_sq) - 1; if (term_inside_sqrt < 0) { message = "Internal Error: Calculation term (sqrt) is negative."; messageType = 'error'; error = true; } else { sigma_noise = Math.abs(beta1 * sigma_x) * Math.sqrt(term_inside_sqrt); message = `Calculated σ_noise ≈ ${sigma_noise.toFixed(3)} for target ρ=${rho_target}.`; messageType = 'message'; } }
+        return { sigma_noise, message, messageType, error };
+    }
+
+    function generateAndPlotData() {
+        setMsg('generation_message', '', 'message');
+        document.getElementById('status').innerText = 'Generating data...';
+        document.getElementById('summaryStats').innerText = ''; // Clear old results
+        // Clear previous posterior plots
+        plotPosteriorPDF(null, 'posteriorBeta0Plot', 'Posterior PDF for Intercept (β0)', NaN);
+        plotPosteriorPDF(null, 'posteriorBeta1Plot', 'Posterior PDF for Slope (β1)', NaN);
+        posteriorParams = {}; // Clear stored posterior params
+
+        try {
+            const beta0 = getVal('true_beta0'); const beta1 = getVal('true_beta1'); const mean_x = getVal('mean_x'); const std_dev_x = getVal('std_dev_x'); const target_correlation = getVal('target_correlation'); const N = Math.max(2, Math.round(getVal('num_points'))); // Need N>=2 for calculations
+            document.getElementById('num_points').value = N; // Update input if changed
+
+            const noiseResult = calculate_sigma_noise(beta1, std_dev_x, target_correlation);
+            setMsg('generation_message', noiseResult.message, noiseResult.messageType);
+            if (noiseResult.error) { data = { x: [], y: [] }; trueParams = {}; plotDataScatter(); document.getElementById('status').innerText = 'Data generation failed.'; return; }
+            const sigma_noise = noiseResult.sigma_noise;
+            trueParams = { beta0: beta0, beta1: beta1, sigma_noise: sigma_noise };
+
+            data.x = []; data.y = [];
+            for (let i = 0; i < N; i++) {
+                const xi = jStat.normal.sample(mean_x, std_dev_x);
+                const noise = (sigma_noise === 0 || !isFinite(sigma_noise)) ? 0 : jStat.normal.sample(0, sigma_noise);
+                const yi = trueParams.beta0 + trueParams.beta1 * xi + noise;
+                data.x.push(xi); data.y.push(yi);
+            }
+
+            let sample_corr = NaN;
+            if (N > 1 && jStat.variance(data.x) > 1e-9 && jStat.variance(data.y) > 1e-9) { sample_corr = jStat.corrcoeff(data.x, data.y); const corr_msg = `Actual sample correlation ≈ ${sample_corr.toFixed(3)}`; setMsg('generation_message', noiseResult.message + `\n${corr_msg}`, noiseResult.messageType); } else { setMsg('generation_message', noiseResult.message + `\nSample correlation undefined.`, noiseResult.messageType); }
+
+            plotDataScatter();
+            document.getElementById('status').innerText = 'Data generated. Ready to calculate posterior.';
+
+        } catch (error) { console.error("Error during data generation:", error); setMsg('generation_message', "Error during data generation. Check console.", 'error'); document.getElementById('status').innerText = 'Data generation failed.'; data = { x: [], y: [] }; trueParams = {}; plotDataScatter(); }
+    }
+
+     // --- Plotting Functions ---
+     function plotDataScatter(posteriorMeanBeta0, posteriorMeanBeta1) {
+         const canvasId = 'dataScatterPlot'; const canvas = document.getElementById(canvasId); if (!canvas) { console.error(`Canvas ${canvasId} not found.`); return; } const ctxScatter = canvas.getContext('2d'); if (!ctxScatter) { console.error(`No 2D context for ${canvasId}.`); return; }
+         const existingChart = Chart.getChart(canvasId); if (existingChart) { existingChart.destroy(); }
+
+         const datasets = []; const scatterPoints = (data && data.x && data.y) ? data.x.map((val, index) => ({ x: val, y: data.y[index] })) : [];
+         if (scatterPoints.length > 0) { datasets.push({ label: 'Simulated Data', data: scatterPoints, backgroundColor: 'rgba(0, 123, 255, 0.5)', type: 'scatter', order: 3 }); }
+
+         let x_min_plot, x_max_plot;
+         if (scatterPoints.length > 0) { x_min_plot = jStat.min(data.x); x_max_plot = jStat.max(data.x); const range = x_max_plot - x_min_plot; if (range > 1e-9) { x_min_plot -= range * 0.1; x_max_plot += range * 0.1; } else { x_min_plot -= 1; x_max_plot += 1; } } else { const mean_x = getVal('mean_x'); const std_dev_x = getVal('std_dev_x'); x_min_plot = (isNaN(mean_x) ? 0 : mean_x) - 3 * (isNaN(std_dev_x) || std_dev_x <= 0 ? 1 : std_dev_x); x_max_plot = (isNaN(mean_x) ? 0 : mean_x) + 3 * (isNaN(std_dev_x) || std_dev_x <= 0 ? 1 : std_dev_x); }
+         const x_vals_line = [x_min_plot, x_max_plot];
+
+         if (trueParams && typeof trueParams.beta0 === 'number' && typeof trueParams.beta1 === 'number') { const y_vals_true_line = x_vals_line.map(x_val => trueParams.beta0 + trueParams.beta1 * x_val); if(y_vals_true_line.every(isFinite)) { datasets.push({ label: 'True Regression Line', data: [{x: x_vals_line[0], y: y_vals_true_line[0]}, {x: x_vals_line[1], y: y_vals_true_line[1]}], borderColor: 'rgba(255, 0, 0, 0.7)', borderWidth: 2, fill: false, type: 'line', pointRadius: 0, order: 1 }); } }
+         if (typeof posteriorMeanBeta0 === 'number' && typeof posteriorMeanBeta1 === 'number' && isFinite(posteriorMeanBeta0) && isFinite(posteriorMeanBeta1)) { const y_vals_posterior_line = x_vals_line.map(x_val => posteriorMeanBeta0 + posteriorMeanBeta1 * x_val); if(y_vals_posterior_line.every(isFinite)) { datasets.push({ label: 'Bayesian Regression Line (Posterior Mean)', data: [{x: x_vals_line[0], y: y_vals_posterior_line[0]}, {x: x_vals_line[1], y: y_vals_posterior_line[1]}], borderColor: 'rgba(0, 128, 0, 0.7)', borderWidth: 2, fill: false, type: 'line', pointRadius: 0, borderDash: [5, 5], order: 2 }); } }
+
+         if (datasets.length === 0) { ctxScatter.clearRect(0, 0, canvas.width, canvas.height); ctxScatter.textAlign = 'center'; ctxScatter.fillStyle = '#888'; ctxScatter.fillText("Generate data to plot.", canvas.width / 2, 50); return; }
+         try { new Chart(ctxScatter, { data: { datasets: datasets }, options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { x: { title: { display: true, text: 'X' }, type: 'linear', position: 'bottom' }, y: { title: { display: true, text: 'Y' } } }, plugins: { title: { display: true, text: 'Data Scatter Plot with Regression Lines' } } } }); } catch (chartError) { console.error(`Error creating scatter chart (${canvasId}):`, chartError); ctxScatter.clearRect(0, 0, canvas.width, canvas.height); ctxScatter.textAlign = 'center'; ctxScatter.fillStyle = 'red'; ctxScatter.fillText("Error creating scatter chart.", canvas.width / 2, 50); }
+     }
+
+    function plotPosteriorPDF(params, canvasId, title, trueValue) {
+         // params = { mean, stdDev, df } for t-distribution
+         const canvas = document.getElementById(canvasId); if (!canvas) { console.error(`Canvas ${canvasId} not found.`); return; } const ctx = canvas.getContext('2d'); if (!ctx) { console.error(`No 2D context for ${canvasId}.`); return; }
+         const chartInstance = Chart.getChart(canvasId); if (chartInstance) { chartInstance.destroy(); }
+
+         if (!params || typeof params.mean !== 'number' || typeof params.stdDev !== 'number' || typeof params.df !== 'number' || !isFinite(params.mean) || !isFinite(params.stdDev) || params.stdDev <= 0 || !isFinite(params.df) || params.df <= 0) {
+             ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.textAlign = 'center'; ctx.fillStyle = '#888';
+             ctx.fillText("Posterior not calculated or invalid.", canvas.width / 2, 50);
+             return;
+         }
+
+         const { mean, stdDev, df } = params;
+         const scale = stdDev; // For location-scale T pdf calculation
+         const numPoints = 101; // Number of points to calculate for the PDF curve
+         const plotMin = mean - 4 * stdDev;
+         const plotMax = mean + 4 * stdDev;
+         const step = (plotMax - plotMin) / (numPoints - 1);
+
+         const pdfData = [];
+         const labels = [];
+         for (let i = 0; i < numPoints; i++) {
+             const x = plotMin + i * step;
+             // Calculate PDF for Student's t distribution: pdf(x | μ, σ, ν) = (1/σ) * T.pdf((x-μ)/σ | ν)
+             // jStat.studentt.pdf(x, dof) is for standard t (location 0, scale 1)
+             const standardizedX = (x - mean) / scale;
+             const pdfValue = (1 / scale) * jStat.studentt.pdf(standardizedX, df);
+
+             if (isFinite(x) && isFinite(pdfValue)) {
+                 labels.push(x.toFixed(3));
+                 pdfData.push({ x: x, y: pdfValue });
+             }
+         }
+
+         if (pdfData.length === 0) {
+             ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.textAlign = 'center'; ctx.fillStyle = '#888';
+             ctx.fillText("Could not generate PDF data.", canvas.width / 2, 50);
+             return;
+         }
+
+         const annotationOptions = {};
+         if (typeof trueValue === 'number' && isFinite(trueValue)) {
+             annotationOptions.annotations = {
+                 line1: { type: 'line', scaleID: 'x', value: trueValue, borderColor: 'rgb(255, 99, 132)', borderWidth: 2, label: { content: 'True Value', enabled: true, position: 'top', backgroundColor: 'rgba(255, 99, 132, 0.7)'}}
+             };
+         }
+
+         try {
+             new Chart(ctx, {
+                 type: 'line',
+                 data: {
+                     // labels: labels, // Using numeric x-axis instead
+                     datasets: [{ label: 'Posterior PDF', data: pdfData, borderColor: 'rgba(75, 192, 192, 1)', backgroundColor: 'rgba(75, 192, 192, 0.2)', borderWidth: 2, fill: true, pointRadius: 0, tension: 0.1 }]
+                 },
+                 options: {
+                     plugins: { title: { display: true, text: title }, legend: { display: false }, annotation: annotationOptions },
+                     scales: { y: { beginAtZero: true, title: { display: true, text: 'Density' } }, x: { type: 'linear', title: { display: true, text: 'Parameter Value' } } },
+                     responsive: true, maintainAspectRatio: false, animation: false
+                 }
+             });
+         } catch (chartError) { console.error(`Error creating PDF chart (${canvasId}):`, chartError); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.textAlign = 'center'; ctx.fillStyle = 'red'; ctx.fillText(`Error creating chart ${canvasId}.`, canvas.width / 2, 50); }
+     }
+
+
+    // --- Conjugate Calculation ---
+    function calculateConjugatePosteriors() {
+         if (!data || !data.x || data.x.length < 2) { // Need at least 2 points for matrix calculations
+            alert("Please generate data (N>=2) first!");
+            return;
+         }
+         document.getElementById('status').innerText = 'Calculating posterior...';
+         document.getElementById('summaryStats').innerText = '';
+
+         try {
+             const N = data.x.length;
+             const y = data.y;
+             // Construct design matrix X (N x 2)
+             const X = data.x.map(xi => [1, xi]);
+
+             // Prior parameters
+             const prior_mu = [getVal('prior_beta0_mean'), getVal('prior_beta1_mean')];
+             const prior_std0 = getVal('prior_beta0_std');
+             const prior_std1 = getVal('prior_beta1_std');
+             const prior_a0 = getVal('prior_tau_alpha');
+             const prior_b0 = getVal('prior_tau_beta');
+
+             // Validate priors
+             if ([prior_mu[0], prior_mu[1], prior_std0, prior_std1, prior_a0, prior_b0].some(isNaN)) { throw new Error("One or more prior parameters are invalid."); }
+             if (prior_std0 <= 0 || prior_std1 <= 0 || prior_a0 <= 0 || prior_b0 <= 0) { throw new Error("Prior std deviations and Gamma parameters must be positive."); }
+
+             // Construct prior precision matrix Λ₀ = diag(1/var)
+             const Lambda0 = [
+                 [1 / (prior_std0 * prior_std0), 0],
+                 [0, 1 / (prior_std1 * prior_std1)]
+             ];
+
+             // Calculate intermediate terms
+             const XtX = multiplyMatrixTransposeMatrix(X, X); // X'X (2x2)
+             const Xty = multiplyMatrixTransposeVector(X, y); // X'y (2x1)
+             if (!XtX || !Xty) throw new Error("Matrix calculation failed (XtX or Xty).");
+
+             // Posterior precision structure Λn = Λ₀ + XᵀX
+             const Lambda_n = [
+                 [Lambda0[0][0] + XtX[0][0], Lambda0[0][1] + XtX[0][1]],
+                 [Lambda0[1][0] + XtX[1][0], Lambda0[1][1] + XtX[1][1]]
+             ];
+
+             // Inverse of Λn
+             const Lambda_n_inv = invert2x2(Lambda_n);
+             if (!Lambda_n_inv) throw new Error("Posterior precision matrix Λn is singular.");
+
+             // Posterior mean μn = Λn⁻¹(Λ₀μ₀ + Xᵀy)
+             const Lambda0_mu0 = multiply2x2Vector(Lambda0, prior_mu);
+             const term_in_paren = [Lambda0_mu0[0] + Xty[0], Lambda0_mu0[1] + Xty[1]];
+             const mu_n = multiply2x2Vector(Lambda_n_inv, term_in_paren); // Posterior mean vector [μn0, μn1]
+
+             // Posterior Gamma parameters for τ
+             const an = prior_a0 + N / 2.0;
+
+             const yty = dotProduct(y, y);
+             const mu0_L0_mu0 = quadraticForm(prior_mu, Lambda0);
+             const mu_n_Ln_mu_n = quadraticForm(mu_n, Lambda_n); // μn' * Λn * μn
+             const bn = prior_b0 + 0.5 * (yty + mu0_L0_mu0 - mu_n_Ln_mu_n);
+
+              if (!isFinite(an) || an <= 0 || !isFinite(bn) || bn <= 0) {
+                 throw new Error(`Calculated posterior Gamma parameters are invalid: aₙ=${an.toFixed(3)}, bₙ=${bn.toFixed(3)}`);
+              }
+
+             // Parameters for marginal t-distribution of β
+             const posterior_df = 2 * an;
+             // Scale matrix S = (an/bn) * Λn⁻¹
+             const scale_factor = an / bn;
+             const S = [
+                 [scale_factor * Lambda_n_inv[0][0], scale_factor * Lambda_n_inv[0][1]],
+                 [scale_factor * Lambda_n_inv[1][0], scale_factor * Lambda_n_inv[1][1]]
+             ];
+
+             // Extract marginal parameters for β₀ and β₁
+             const posterior_mean_beta0 = mu_n[0];
+             const posterior_var_beta0 = S[0][0];
+             const posterior_std_beta0 = Math.sqrt(posterior_var_beta0);
+
+             const posterior_mean_beta1 = mu_n[1];
+             const posterior_var_beta1 = S[1][1];
+             const posterior_std_beta1 = Math.sqrt(posterior_var_beta1);
+
+              // Store for plotting and summary
+              posteriorParams = {
+                 beta0: { mean: posterior_mean_beta0, stdDev: posterior_std_beta0, df: posterior_df },
+                 beta1: { mean: posterior_mean_beta1, stdDev: posterior_std_beta1, df: posterior_df },
+                 tau: { an: an, bn: bn }
+             };
+
+             // Plotting
+             plotPosteriorPDF(posteriorParams.beta0, 'posteriorBeta0Plot', `Posterior PDF for β0 (t, df=${posterior_df.toFixed(1)})`, trueParams.beta0);
+             plotPosteriorPDF(posteriorParams.beta1, 'posteriorBeta1Plot', `Posterior PDF for β1 (t, df=${posterior_df.toFixed(1)})`, trueParams.beta1);
+             plotDataScatter(posterior_mean_beta0, posterior_mean_beta1); // Update scatter with posterior mean line
+
+             // Calculate posterior mean sigma_noise
+             // E[σ_noise] approx sqrt( E[τ⁻¹] ) = sqrt( bn / (an - 1) ) for an > 1
+             // Simpler approx: sqrt( 1 / E[τ] ) = sqrt( bn / an )
+              let post_mean_sigma_noise = NaN;
+              if (an > 0 && bn > 0) { // Use simpler approximation
+                  post_mean_sigma_noise = Math.sqrt(bn / an);
+              }
+
+
+             // Update Summary Stats
+             const sample_corr = (N > 1 && jStat.variance(data.x) > 1e-9 && jStat.variance(data.y) > 1e-9) ? jStat.corrcoeff(data.x, data.y) : NaN;
+             const summary = `Summary Statistics (Conjugate Posterior):
+-----------------------------------------
+Data Generation:
+  N = ${N}
+  True β0 = ${trueParams.beta0.toFixed(3)}
+  True β1 = ${trueParams.beta1.toFixed(3)}
+  Target ρ = ${getVal('target_correlation').toFixed(3)}
+  Calculated true σ_noise = ${trueParams.sigma_noise.toFixed(3)}
+  Actual Sample Correlation = ${isNaN(sample_corr) ? 'N/A' : sample_corr.toFixed(3)}
+
+Posterior Parameters (Marginal t-distribution for β):
+  Posterior Mean β0 = ${posterior_mean_beta0.toFixed(3)}
+  Posterior StdDev β0 = ${posterior_std_beta0.toFixed(3)}
+  Posterior Mean β1 = ${posterior_mean_beta1.toFixed(3)}
+  Posterior StdDev β1 = ${posterior_std_beta1.toFixed(3)}
+  Degrees of Freedom (ν = 2aₙ) = ${posterior_df.toFixed(1)}
+
+Posterior Parameters (Gamma for τ ~ Gamma(aₙ, bₙ)):
+  Posterior shape aₙ = ${an.toFixed(3)}
+  Posterior rate bₙ = ${bn.toFixed(3)}
+  Posterior Mean τ = ${(an/bn).toFixed(3)}
+  Posterior Mean σ_noise ≈ ${isNaN(post_mean_sigma_noise) ? 'N/A' : post_mean_sigma_noise.toFixed(3)}
+`;
+             document.getElementById('summaryStats').innerText = summary;
+             document.getElementById('status').innerText = 'Posterior calculated and plotted.';
+
+         } catch(error) {
+             console.error("Error during conjugate posterior calculation:", error);
+             document.getElementById('status').innerText = 'Error: ' + error.message;
+             // Clear plots on error
+             plotPosteriorPDF(null, 'posteriorBeta0Plot', 'Posterior PDF for Intercept (β0)', NaN);
+             plotPosteriorPDF(null, 'posteriorBeta1Plot', 'Posterior PDF for Slope (β1)', NaN);
+             posteriorParams = {};
+         }
+    }
+
+    // --- Initialization ---
+    window.onload = () => {
+        // Check required libraries
+         if (typeof Chart === 'undefined' || typeof jStat === 'undefined') { console.error("Chart.js or jStat library not loaded!"); document.body.insertBefore(document.createTextNode("ERROR: Could not load required libraries."), document.body.firstChild); return; }
+
+        try {
+            // Chart.js Annotation plugin is *not* used in this version for PDF plot, but keep if added back
+            // Chart.register(chartjsPluginAnnotation); console.log("Annotation plugin registered.");
+
+            generateAndPlotData(); // Generate initial data
+
+            // Set up empty placeholders for posterior plots
+             plotPosteriorPDF(null, 'posteriorBeta0Plot', 'Posterior PDF for Intercept (β0)', NaN);
+             plotPosteriorPDF(null, 'posteriorBeta1Plot', 'Posterior PDF for Slope (β1)', NaN);
+
+        } catch (error) { console.error("Error during page initialization:", error); document.body.insertBefore(document.createTextNode("ERROR during page initialization."), document.body.firstChild); }
+    };
+
+</script>
+</body>
+</html>
